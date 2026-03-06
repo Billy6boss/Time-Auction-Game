@@ -1,0 +1,56 @@
+@page "{roomId}"
+@model TimeAuctionGame.Pages.RoomModel
+@{
+    ViewData["Title"] = "房間";
+}
+
+<div id="roomView">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 id="roomTitle">載入中...</h3>
+        <button id="leaveRoomBtn" class="btn btn-outline-secondary">離開房間</button>
+    </div>
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card shadow-sm mb-3">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">房間設定</h6>
+                    <p>初始時間：<strong id="roomTime">-</strong> 分鐘</p>
+                    <p>總回合數：<strong id="roomRounds">-</strong></p>
+                    <p>目前回合：<strong id="currentRound">0</strong></p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card shadow-sm mb-3">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">玩家列表</h6>
+                    <div id="playerList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="hostControls" class="text-center mt-3" style="display:none;">
+        <button id="startGameBtn" class="btn btn-primary btn-lg px-5">開始遊戲</button>
+        <button id="nextRoundBtn" class="btn btn-primary btn-lg px-5" style="display:none;">開始下一回合</button>
+    </div>
+
+    <div id="roundResult" class="text-center mt-4" style="display:none;">
+        <div class="alert alert-info">
+            <h4 id="roundWinnerText"></h4>
+        </div>
+    </div>
+
+    <div id="gameOverResult" class="text-center mt-4" style="display:none;">
+        <div class="alert alert-warning">
+            <h3 id="gameOverText"></h3>
+        </div>
+    </div>
+</div>
+
+<input type="hidden" id="roomId" value="@Model.RoomId" />
+
+@section Scripts {
+    <script src="~/js/room.js" asp-append-version="true"></script>
+}
