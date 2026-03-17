@@ -6,8 +6,16 @@ WORKDIR /src
 COPY src/TimeAuctionGame/TimeAuctionGame.csproj src/TimeAuctionGame/
 RUN dotnet restore src/TimeAuctionGame/TimeAuctionGame.csproj
 
+# 安裝 libman CLI，用來還原 wwwroot/lib 下的前端套件（Bootstrap、jQuery 等）
+# 這些檔案由 .gitignore 排除，需在 build 階段從 CDN 下載
+RUN dotnet tool install -g Microsoft.Web.LibraryManager.Cli
+ENV PATH="$PATH:/root/.dotnet/tools"
+
 # 複製其餘原始碼
 COPY src/TimeAuctionGame/ src/TimeAuctionGame/
+
+# 還原前端套件（從 cdnjs 下載到 wwwroot/lib）
+RUN cd src/TimeAuctionGame && libman restore
 
 # 發布（Release，自包含 = false，使用執行環境的 ASP.NET Runtime）
 RUN dotnet publish src/TimeAuctionGame/TimeAuctionGame.csproj \
