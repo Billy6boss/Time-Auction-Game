@@ -54,4 +54,7 @@ public class Room
     /// <summary>目前按住按鈕且有效且未放棄本回合的玩家</summary>
     public IEnumerable<Player> PressedActivePlayers =>
         Players.Values.Where(p => p.IsActive && p.IsPressingButton && !p.IsSittingOutRound);
+
+    /// <summary>本回合最後一個放開按鈕的有效玩家（用於決定勝者）</summary>
+    public Player? LastReleasedActivePlayer { get; set; }
 }

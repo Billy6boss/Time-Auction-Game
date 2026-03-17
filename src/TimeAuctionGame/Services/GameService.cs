@@ -38,6 +38,8 @@ public class GameService
             player.IsSittingOutRound = false;
         }
 
+        room.LastReleasedActivePlayer = null;
+
         _logger.LogInformation("[Room {RoomId}] 回合 {Round}/{Total} 準備開始",
             room.RoomId, room.CurrentRound, room.TotalRounds);
 
@@ -179,6 +181,8 @@ public class GameService
                 "[Room {RoomId}] 玩家 {PlayerName}({PlayerId}) 放開按鈕，耗時 {Elapsed}ms，剩餘 {Before}ms → {After}ms",
                 room.RoomId, player.Name, playerId, elapsed, before, player.RemainingTimeMs);
 
+            room.LastReleasedActivePlayer = player;
+
             await _hubContext.Clients.Group(room.RoomId)
                 .SendAsync("PlayerTimeUpdated", new
                 {
@@ -247,7 +251,7 @@ public class GameService
     // ── 回合結束判定 ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// 判斷回合是否應結束：只剩 0 或 1 位有效玩家按住按鈕。
+    /// 判斷回合是否應結束：所有有效玩家均已放開按鈕。
     /// </summary>
     public async Task CheckRoundEnd(Room room)
     {
@@ -258,33 +262,24 @@ public class GameService
         _logger.LogDebug("[Room {RoomId}] 回合結束判定：仍按住 {Count} 人",
             room.RoomId, stillPressing.Count);
 
-        // 還有 2 人以上按住 → 繼續
-        if (stillPressing.Count >= 2) return;
+        // 還有玩家按住 → 繼續
+        if (stillPressing.Count >= 1) return;
 
-        // 1 人按住 → 該人勝出
-        // 0 人按住 → 若只剩 1 位有效選手（其他人已放棄本回合），該選手為最後持有者即贏家
-        List<Player> roundWinners;
-        if (stillPressing.Count == 1)
-        {
-            roundWinners = stillPressing;
-        }
-        else
-        {
-            var soleEligible = room.Players.Values
-                .Where(p => p.IsActive && !p.IsSittingOutRound)
-                .ToList();
-            roundWinners = soleEligible.Count == 1 ? soleEligible : new List<Player>();
-        }
+        // 0 人按住 → 最後放開按鈕的有效玩家為勝者（時間已在放開時扣除）
+        var roundWinners = room.LastReleasedActivePlayer != null
+            ? new List<Player> { room.LastReleasedActivePlayer }
+            : new List<Player>();
 
-        await EndRound(room, roundWinners);
+        await EndRound(room, roundWinners, skipWinnerTimeDeduction: true);
     }
 
-    private async Task EndRound(Room room, List<Player> winners)
+    private async Task EndRound(Room room, List<Player> winners, bool skipWinnerTimeDeduction = false)
     {
         room.State = RoomState.RoundEnd;
 
         // 競標規則：勝者同樣需扣除本回合持續按住的時間
-        if (winners.Count > 0 && room.RoundStartTime > 0)
+        // （若勝者已在放開按鈕時扣除過，則跳過）
+        if (!skipWinnerTimeDeduction && winners.Count > 0 && room.RoundStartTime > 0)
         {
             var winElapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - room.RoundStartTime;
             foreach (var w in winners)
