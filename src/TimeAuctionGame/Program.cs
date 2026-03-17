@@ -6,6 +6,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services
 builder.Services.AddRazorPages();
 builder.Services.AddSignalR();
+
+// Session（玩家資訊暫存用）
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(24);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+});
+
 builder.Services.AddSingleton<RoomService>();
 builder.Services.AddSingleton<GameService>();
 
@@ -19,6 +30,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseSession();
 app.UseAuthorization();
 
 app.MapStaticAssets();

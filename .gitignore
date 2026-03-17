@@ -41,6 +41,9 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# Client-side libraries managed by libman（由 libman restore 還原，不提交）
+src/TimeAuctionGame/wwwroot/lib/
+
 # MSBuild Binary and Structured Log
 *.binlog
 

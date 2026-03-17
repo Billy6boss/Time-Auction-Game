@@ -1,155 +1,203 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
 using TimeAuctionGame.Models;
 
 namespace TimeAuctionGame.Services;
 
 public class RoomService
 {
-    private readonly ILogger<RoomService> _logger;
-    private readonly ConcurrentDictionary<string, Room> _rooms = new();
+    private const int MaxPlayersPerRoom = 30;
+    private const string ShortIdChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去掉易混淆的 I、O、0、1
 
-    // connectionId -> (roomId, playerId)
-    private readonly ConcurrentDictionary<string, (string RoomId, string PlayerId)> _connectionMap = new();
+    private readonly ConcurrentDictionary<string, Room> _rooms = new();
+    private readonly Random _random = Random.Shared;
+    private readonly ILogger<RoomService> _logger;
 
     public RoomService(ILogger<RoomService> logger)
     {
         _logger = logger;
     }
 
-    public IEnumerable<Room> GetAllRooms() => _rooms.Values;
+    // ── 房間 CRUD ─────────────────────────────────────────────────────────────
 
-    public Room? GetRoom(string roomId) => _rooms.GetValueOrDefault(roomId);
-
-    public Room CreateRoom(string name, string hostPlayerId, string hostPlayerName,
-        string hostConnectionId, int initialTimeMinutes, int totalRounds)
+    /// <summary>
+    /// 創建新房間，回傳建立的 Room；失敗時回傳 null 並帶出錯誤訊息。
+    /// </summary>
+    public (Room? Room, string? Error) CreateRoom(
+        string roomName,
+        int maxTimeMinutes,
+        int totalRounds,
+        string hostPlayerId,
+        string hostConnectionId,
+        string hostName)
     {
+        if (string.IsNullOrWhiteSpace(roomName))
+        {
+            _logger.LogWarning("[CreateRoom] 失敗：房間名稱為空，Player={PlayerId}", hostPlayerId);
+            return (null, "房間名稱不可為空");
+        }
+
+        if (!new[] { 1, 5, 10, 15, 20 }.Contains(maxTimeMinutes))
+        {
+            _logger.LogWarning("[CreateRoom] 失敗：無效時間 {Time}，Player={PlayerId}", maxTimeMinutes, hostPlayerId);
+            return (null, "時間必須是 1/5/10/15/20 分鐘");
+        }
+
+        if (!new[] { 5, 10, 15, 20, 25 }.Contains(totalRounds))
+        {
+            _logger.LogWarning("[CreateRoom] 失敗：無效回合數 {Rounds}，Player={PlayerId}", totalRounds, hostPlayerId);
+            return (null, "回合數必須是 5/10/15/20/25");
+        }
+
+        var roomId = GenerateShortId();
+        var host = new Player
+        {
+            PlayerId = hostPlayerId,
+            ConnectionId = hostConnectionId,
+            Name = hostName,
+            RemainingTimeMs = (long)maxTimeMinutes * 60 * 1000
+        };
+
         var room = new Room
         {
-            Name = name,
-            HostPlayerId = hostPlayerId,
-            InitialTimeMinutes = initialTimeMinutes,
-            TotalRounds = totalRounds
+            RoomId = roomId,
+            RoomName = roomName.Trim(),
+            HostConnectionId = hostConnectionId,
+            MaxTimeMinutes = maxTimeMinutes,
+            TotalRounds = totalRounds,
+            CurrentRound = 0,
+            State = RoomState.Waiting
         };
+        room.Players.TryAdd(hostPlayerId, host);
 
-        var player = new Player
-        {
-            Id = hostPlayerId,
-            Name = hostPlayerName,
-            ConnectionId = hostConnectionId,
-            RemainingTime = TimeSpan.FromMinutes(initialTimeMinutes)
-        };
+        _rooms.TryAdd(roomId, room);
 
-        room.Players[player.Id] = player;
-        _rooms[room.Id] = room;
-        _connectionMap[hostConnectionId] = (room.Id, player.Id);
+        _logger.LogInformation("[CreateRoom] 房間 {RoomId}（{RoomName}）已建立，房主={HostName}，時間={Time}分，回合={Rounds}",
+            roomId, roomName.Trim(), hostName, maxTimeMinutes, totalRounds);
 
-        _logger.LogInformation("CreateRoom: room={RoomId} name={Name} host={HostPlayerId} conn={ConnId}",
-            room.Id, room.Name, hostPlayerId, hostConnectionId);
-
-        return room;
+        return (room, null);
     }
 
-    public bool RemoveRoom(string roomId) => _rooms.TryRemove(roomId, out _);
-
-    public Player? AddPlayerToRoom(string roomId, string playerId, string playerName, string connectionId)
+    /// <summary>
+    /// 玩家加入房間，回傳房間；失敗時回傳 null 並帶出錯誤訊息。
+    /// </summary>
+    public (Room? Room, string? Error) JoinRoom(
+        string roomId,
+        string playerId,
+        string connectionId,
+        string playerName)
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
+        if (!_rooms.TryGetValue(roomId.ToUpperInvariant(), out var room))
         {
-            _logger.LogWarning("AddPlayerToRoom: room={RoomId} not found", roomId);
-            return null;
+            _logger.LogWarning("[JoinRoom] 失敗：找不到房間 {RoomId}，Player={PlayerId}", roomId, playerId);
+            return (null, "找不到該房間");
         }
 
         if (room.State != RoomState.Waiting)
         {
-            _logger.LogWarning("AddPlayerToRoom: room={RoomId} state={State} is not Waiting", roomId, room.State);
-            return null;
+            _logger.LogWarning("[JoinRoom] 失敗：房間 {RoomId} 狀態為 {State}，不允許加入，Player={PlayerId}",
+                roomId, room.State, playerId);
+            return (null, "遊戲已開始，無法加入");
         }
 
-        // If player already exists (e.g. host navigating lobby → room page), update connectionId
-        if (room.Players.TryGetValue(playerId, out var existingPlayer))
+        if (room.PlayerCount >= MaxPlayersPerRoom)
         {
-            var oldConnId = existingPlayer.ConnectionId;
-            _connectionMap.TryRemove(oldConnId, out _);
-            existingPlayer.ConnectionId = connectionId;
-            _connectionMap[connectionId] = (roomId, playerId);
-            _logger.LogInformation(
-                "AddPlayerToRoom: player={PlayerId} rejoined room={RoomId} oldConn={OldConn} newConn={NewConn}",
-                playerId, roomId, oldConnId, connectionId);
-            return existingPlayer;
+            _logger.LogWarning("[JoinRoom] 失敗：房間 {RoomId} 已滿（{Count}/{Max}），Player={PlayerId}",
+                roomId, room.PlayerCount, MaxPlayersPerRoom, playerId);
+            return (null, $"房間已滿（上限 {MaxPlayersPerRoom} 人）");
+        }
+
+        // 若同一 PlayerId 重連，更新 ConnectionId
+        if (room.Players.TryGetValue(playerId, out var existing))
+        {
+            _logger.LogInformation("[JoinRoom] 玩家 {PlayerName}({PlayerId}) 重連至房間 {RoomId}",
+                playerName, playerId, roomId);
+            existing.ConnectionId = connectionId;
+            return (room, null);
         }
 
         var player = new Player
         {
-            Id = playerId,
-            Name = playerName,
+            PlayerId = playerId,
             ConnectionId = connectionId,
-            RemainingTime = TimeSpan.FromMinutes(room.InitialTimeMinutes)
+            Name = playerName,
+            RemainingTimeMs = (long)room.MaxTimeMinutes * 60 * 1000
         };
+        room.Players.TryAdd(playerId, player);
 
-        room.Players[player.Id] = player;
-        _connectionMap[connectionId] = (room.Id, player.Id);
+        _logger.LogInformation("[JoinRoom] 玩家 {PlayerName}({PlayerId}) 加入房間 {RoomId}，目前 {Count} 人",
+            playerName, playerId, roomId, room.PlayerCount);
 
-        _logger.LogInformation("AddPlayerToRoom: player={PlayerId} name={Name} joined room={RoomId} conn={ConnId}",
-            playerId, playerName, roomId, connectionId);
-
-        return player;
+        return (room, null);
     }
 
-    public bool RemovePlayerFromRoom(string roomId, string playerId, string connectionId)
+    /// <summary>
+    /// 玩家離開房間。若為房主，解散整個房間並回傳 disbanded = true。
+    /// </summary>
+    public (bool Disbanded, Room? Room) LeaveRoom(string playerId, string connectionId)
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
+        var room = FindRoomByConnectionId(connectionId);
+        if (room == null)
         {
-            _logger.LogWarning("RemovePlayerFromRoom: room={RoomId} not found", roomId);
-            return false;
+            _logger.LogDebug("[LeaveRoom] ConnectionId={ConnectionId} 不在任何房間", connectionId);
+            return (false, null);
         }
 
-        _connectionMap.TryRemove(connectionId, out _);
-        var removed = room.Players.Remove(playerId);
-
-        _logger.LogInformation(
-            "RemovePlayerFromRoom: player={PlayerId} removed={Removed} from room={RoomId} remaining={Count}",
-            playerId, removed, roomId, room.Players.Count);
-
-        // If host left or room is empty, remove the room
-        if (room.Players.Count == 0)
+        // 房主離線 → 解散房間
+        if (room.HostConnectionId == connectionId)
         {
-            _logger.LogInformation("RemovePlayerFromRoom: room={RoomId} is now empty, deleting", roomId);
-            RemoveRoom(roomId);
-        }
-        else if (room.HostPlayerId == playerId)
-        {
-            // Transfer host to next player
-            var newHost = room.Players.Values.First();
-            room.HostPlayerId = newHost.Id;
-            _logger.LogInformation("RemovePlayerFromRoom: host transferred to player={NewHostId} in room={RoomId}",
-                newHost.Id, roomId);
+            _rooms.TryRemove(room.RoomId, out _);
+            room.CountdownCts?.Cancel();
+            _logger.LogInformation("[LeaveRoom] 房主離開，房間 {RoomId} 已解散", room.RoomId);
+            return (true, room);
         }
 
-        return removed;
+        // 先用 connectionId 找到玩家，再移除（避免 playerId 為空字串時找不到）
+        var leaving = room.Players.Values.FirstOrDefault(p => p.ConnectionId == connectionId);
+        if (leaving != null)
+        {
+            room.Players.TryRemove(leaving.PlayerId, out _);
+            _logger.LogInformation("[LeaveRoom] 玩家 {PlayerName}({PlayerId}) 離開房間 {RoomId}，剩餘 {Count} 人",
+                leaving.Name, leaving.PlayerId, room.RoomId, room.PlayerCount);
+        }
+
+        return (false, room);
     }
 
-    public (string RoomId, string PlayerId)? GetConnectionMapping(string connectionId)
+    /// <summary>依 ConnectionId 找玩家所在房間（用於斷線處理）</summary>
+    public Room? FindRoomByConnectionId(string connectionId)
     {
-        return _connectionMap.TryGetValue(connectionId, out var mapping) ? mapping : null;
+        return _rooms.Values.FirstOrDefault(r =>
+            r.Players.Values.Any(p => p.ConnectionId == connectionId));
     }
 
-    public void RemoveConnectionMapping(string connectionId)
+    /// <summary>以短碼查詢房間</summary>
+    public Room? GetRoom(string roomId) =>
+        _rooms.TryGetValue(roomId.ToUpperInvariant(), out var room) ? room : null;
+
+    /// <summary>取得所有房間摘要（供大廳顯示）</summary>
+    public IEnumerable<RoomSummary> GetAllRooms() =>
+        _rooms.Values.Select(r => new RoomSummary
+        {
+            RoomId = r.RoomId,
+            RoomName = r.RoomName,
+            PlayerCount = r.PlayerCount,
+            MaxTimeMinutes = r.MaxTimeMinutes,
+            TotalRounds = r.TotalRounds,
+            CurrentRound = r.CurrentRound,
+            State = r.State
+        });
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private string GenerateShortId()
     {
-        _connectionMap.TryRemove(connectionId, out _);
-    }
-
-    public void UpdateConnectionId(string playerId, string roomId, string newConnectionId)
-    {
-        if (!_rooms.TryGetValue(roomId, out var room)) return;
-        if (!room.Players.TryGetValue(playerId, out var player)) return;
-
-        // Remove old mapping
-        var oldConnId = player.ConnectionId;
-        _connectionMap.TryRemove(oldConnId, out _);
-
-        // Update
-        player.ConnectionId = newConnectionId;
-        _connectionMap[newConnectionId] = (roomId, playerId);
+        string id;
+        do
+        {
+            id = new string(Enumerable.Range(0, 6)
+                .Select(_ => ShortIdChars[_random.Next(ShortIdChars.Length)])
+                .ToArray());
+        } while (_rooms.ContainsKey(id));
+        return id;
     }
 }

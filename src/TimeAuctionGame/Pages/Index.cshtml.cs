@@ -5,33 +5,46 @@ namespace TimeAuctionGame.Pages;
 
 public class IndexModel : PageModel
 {
+    [BindProperty]
+    public string PlayerName { get; set; } = string.Empty;
+
     public IActionResult OnGet()
     {
-        // If already logged in, redirect to lobby
-        if (Request.Cookies.ContainsKey("PlayerName"))
-        {
+        var existingId = Request.Cookies["PlayerId"];
+        var existingName = Request.Cookies["PlayerName"];
+
+        if (!string.IsNullOrEmpty(existingId) && !string.IsNullOrEmpty(existingName))
             return RedirectToPage("/Lobby");
-        }
+
         return Page();
     }
 
-    public IActionResult OnPost(string playerName)
+    public IActionResult OnPost()
     {
-        if (string.IsNullOrWhiteSpace(playerName))
+        var trimmed = PlayerName?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrEmpty(trimmed))
         {
+            ModelState.AddModelError(nameof(PlayerName), "請輸入玩家名稱");
             return Page();
         }
 
-        var playerId = Guid.NewGuid().ToString();
-        var cookieOptions = new CookieOptions
+        if (trimmed.Length > 20)
         {
-            HttpOnly = false, // JS needs to read it
-            Expires = DateTimeOffset.UtcNow.AddDays(7),
-            SameSite = SameSiteMode.Lax
+            ModelState.AddModelError(nameof(PlayerName), "名稱最多 20 字");
+            return Page();
+        }
+
+        var options = new CookieOptions
+        {
+            HttpOnly = false,       // 允許 JavaScript 讀取（_Layout.cshtml 的 getPlayerInfo()）
+            IsEssential = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTimeOffset.UtcNow.AddDays(1)
         };
 
-        Response.Cookies.Append("PlayerId", playerId, cookieOptions);
-        Response.Cookies.Append("PlayerName", playerName.Trim(), cookieOptions);
+        Response.Cookies.Append("PlayerId", Guid.NewGuid().ToString(), options);
+        Response.Cookies.Append("PlayerName", trimmed, options);
 
         return RedirectToPage("/Lobby");
     }

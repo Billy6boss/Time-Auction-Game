@@ -1,167 +1,214 @@
-// room.js - 房間等待室邏輯
-const player = getPlayerInfo();
-if (!player.id || !player.name) {
-    window.location.href = '/';
-}
+'use strict';
 
-const roomId = document.getElementById('roomId').value;
-let currentRoom = null;
-let hasJoined = false;
+(function () {
+    // ── 讀取頁面資料 ──────────────────────────────────────────────────────────
+    const app           = document.getElementById('room-app');
+    const roomId        = app.dataset.roomId;       // 建立模式時為空字串
+    const myPlayerId    = app.dataset.playerId;
+    const myPlayerName  = app.dataset.playerName;
+    let   maxTimeMs     = parseInt(app.dataset.maxTimeMs, 10);  // 建立後更新
 
-const connection = new signalR.HubConnectionBuilder()
-    .withUrl('/gamehub')
-    .withAutomaticReconnect()
-    .build();
+    // ── 建立 SignalR 連線（game.js 共用） ─────────────────────────────────────
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl('/gamehub')
+        .withAutomaticReconnect()
+        .build();
 
-// ─── UI Elements ─────────────────────────────────────────
-const roomTitle = document.getElementById('roomTitle');
-const roomTime = document.getElementById('roomTime');
-const roomRounds = document.getElementById('roomRounds');
-const currentRound = document.getElementById('currentRound');
-const playerList = document.getElementById('playerList');
-const hostControls = document.getElementById('hostControls');
-const startGameBtn = document.getElementById('startGameBtn');
-const nextRoundBtn = document.getElementById('nextRoundBtn');
-const leaveRoomBtn = document.getElementById('leaveRoomBtn');
-const roundResult = document.getElementById('roundResult');
-const roundWinnerText = document.getElementById('roundWinnerText');
-const gameOverResult = document.getElementById('gameOverResult');
-const gameOverText = document.getElementById('gameOverText');
+    // 供 game.js 使用
+    window.hubConnection = connection;
 
-// ─── SignalR Events ──────────────────────────────────────
-connection.on('RoomUpdated', (room) => {
-    currentRoom = room;
-    renderRoom(room);
-});
+    // ── 可變共享狀態（game.js 讀取） ──────────────────────────────────────────
+    window.roomState = {
+        isHost: false,
+        myPlayerId: myPlayerId,
+        currentPlayers: {}   // playerId → PlayerInfo
+    };
 
-connection.on('GameStarted', (room) => {
-    // Navigate to game page
-    window.location.href = `/Game/${roomId}`;
-});
+    // ── Section 切換（game.js 也會使用） ─────────────────────────────────────
+    const allSectionIds = [
+        'section-loading', 'section-error', 'section-waiting',
+        'section-game', 'section-round-end', 'section-game-end'
+    ];
+    window.showSection = function (sectionId) {
+        allSectionIds.forEach(function (id) {
+            document.getElementById(id).classList.add('d-none');
+        });
+        document.getElementById(sectionId).classList.remove('d-none');
+    };
 
-connection.on('NewRound', (room) => {
-    window.location.href = `/Game/${roomId}`;
-});
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const waitingPlayerList = document.getElementById('waiting-player-list');
+    const playerCountBadge  = document.getElementById('player-count-badge');
+    const startGameBtn      = document.getElementById('start-game-btn');
+    const leaveRoomBtn      = document.getElementById('leave-room-btn');
+    const guestHint         = document.getElementById('guest-hint');
+    const errorMessage      = document.getElementById('error-message');
 
-connection.on('RoundEnded', (winnerId, winnerName, room) => {
-    currentRoom = room;
-    renderRoom(room);
-    roundResult.style.display = 'block';
-    roundWinnerText.textContent = `🏆 第 ${room.currentRound} 回合勝者：${winnerName || '無'}`;
+    // ── SignalR 事件 ──────────────────────────────────────────────────────────
 
-    if (room.hostPlayerId === player.id) {
-        startGameBtn.style.display = 'none';
-        nextRoundBtn.style.display = 'inline-block';
-    }
-});
+    /**
+     * 建立房間成功（建立模式專用）：更新 URL、填充初始 UI，視同房主加入。
+     * 資料：{ roomId, roomName, maxTimeMinutes, totalRounds }
+     */
+    connection.on('RoomCreated', function (room) {
+        // 更新瀏覽器網址列（不重載頁面）
+        history.replaceState(null, '', '/Room/' + room.roomId);
+        document.title = room.roomName + ' - 時間拍賣';
 
-connection.on('GameOver', (winnerId, winnerName, room) => {
-    currentRoom = room;
-    renderRoom(room);
-    gameOverResult.style.display = 'block';
-    gameOverText.textContent = `🎉 遊戲結束！最終勝者：${winnerName || '無人獲勝'}`;
-    startGameBtn.style.display = 'none';
-    nextRoundBtn.style.display = 'none';
-});
+        // 更新初始時間（renderWaitingPlayerList 會用到）
+        maxTimeMs = room.maxTimeMinutes * 60 * 1000;
+        app.dataset.roomId = room.roomId;
 
-connection.on('Error', (msg) => {
-    alert(msg);
-    window.location.href = '/Lobby';
-});
+        // 更新房間資訊顯示元素（create mode 時為空值）
+        document.getElementById('room-title').textContent       = room.roomName;
+        document.getElementById('room-id-badge').textContent    = room.roomId;
+        document.getElementById('room-max-time').textContent    = room.maxTimeMinutes;
+        document.getElementById('room-total-rounds').textContent = room.totalRounds;
 
-// ─── Actions ─────────────────────────────────────────────
-startGameBtn.addEventListener('click', () => {
-    connection.invoke('StartGame', roomId, player.id)
-        .catch(err => console.error('StartGame error:', err));
-});
+        // 設為房主，將自己加入玩家列表
+        window.roomState.isHost = true;
+        window.roomState.currentPlayers = {};
+        window.roomState.currentPlayers[myPlayerId] = {
+            playerId:        myPlayerId,
+            name:            myPlayerName,
+            remainingTimeMs: maxTimeMs,
+            score:           0,
+            isActive:        true
+        };
 
-nextRoundBtn.addEventListener('click', () => {
-    connection.invoke('StartNextRound', roomId, player.id)
-        .catch(err => console.error('StartNextRound error:', err));
-});
-
-leaveRoomBtn.addEventListener('click', () => {
-    connection.invoke('LeaveRoom', roomId, player.id)
-        .then(() => {
-            window.location.href = '/Lobby';
-        })
-        .catch(err => console.error('LeaveRoom error:', err));
-});
-
-// ─── Rendering ───────────────────────────────────────────
-function renderRoom(room) {
-    roomTitle.textContent = `🏠 ${room.name}`;
-    roomTime.textContent = room.initialTimeMinutes;
-    roomRounds.textContent = room.totalRounds;
-    currentRound.textContent = room.currentRound;
-
-    // Player list
-    let html = '';
-    for (const p of room.players) {
-        const isHost = p.id === room.hostPlayerId;
-        const isMe = p.id === player.id;
-        html += `
-            <div class="d-flex justify-content-between align-items-center border-bottom py-2">
-                <div>
-                    ${isHost ? '👑' : '👤'}
-                    <strong>${escapeHtml(p.name)}</strong>
-                    ${isMe ? '<span class="badge bg-primary ms-1">你</span>' : ''}
-                </div>
-                <div>
-                    <span class="badge bg-info">⏱ ${formatTime(p.remainingTimeSeconds)}</span>
-                    <span class="badge bg-warning text-dark ms-1">🏆 ${p.score}</span>
-                </div>
-            </div>`;
-    }
-    playerList.innerHTML = html;
-
-    // Host controls
-    if (room.hostPlayerId === player.id && room.state === 'Waiting' && room.currentRound === 0) {
-        hostControls.style.display = 'block';
-        startGameBtn.style.display = 'inline-block';
-        nextRoundBtn.style.display = 'none';
-    } else if (room.hostPlayerId === player.id && room.state === 'RoundResult') {
-        hostControls.style.display = 'block';
-        startGameBtn.style.display = 'none';
-        nextRoundBtn.style.display = 'inline-block';
-    } else if (room.hostPlayerId !== player.id) {
-        hostControls.style.display = 'none';
-    }
-}
-
-function formatTime(totalSeconds) {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = Math.floor(totalSeconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// ─── Start Connection ────────────────────────────────────
-connection.start()
-    .then(() => {
-        console.log('SignalR connected');
-        // Join the room
-        connection.invoke('JoinRoom', roomId, player.name, player.id)
-            .then(() => {
-                hasJoined = true;
-            })
-            .catch(err => {
-                console.error('JoinRoom error:', err);
-                window.location.href = '/Lobby';
-            });
-    })
-    .catch(err => {
-        console.error('SignalR connection error:', err);
+        startGameBtn.classList.remove('d-none');
+        startGameBtn.disabled = true;   // 還沒有第二位玩家
+        guestHint.classList.add('d-none');
+        renderWaitingPlayerList();
+        window.showSection('section-waiting');
     });
 
-// Cleanup on page leave
-window.addEventListener('beforeunload', () => {
-    if (hasJoined) {
-        connection.invoke('LeaveRoom', roomId, player.id).catch(() => {});
+    /** 加入成功：收到房間完整快照 */
+    connection.on('RoomJoined', function (room) {
+        window.roomState.isHost = room.isHost;
+        window.roomState.currentPlayers = {};
+        room.players.forEach(function (p) {
+            window.roomState.currentPlayers[p.playerId] = p;
+        });
+
+        if (room.isHost) {
+            startGameBtn.classList.remove('d-none');
+            guestHint.classList.add('d-none');
+        } else {
+            startGameBtn.classList.add('d-none');
+            guestHint.classList.remove('d-none');
+        }
+
+        renderWaitingPlayerList();
+        window.showSection('section-waiting');
+    });
+
+    /** 有新玩家加入 */
+    connection.on('PlayerJoined', function (player) {
+        window.roomState.currentPlayers[player.playerId] = player;
+        renderWaitingPlayerList();
+    });
+
+    /** 有玩家離開 */
+    connection.on('PlayerLeft', function (playerId) {
+        delete window.roomState.currentPlayers[playerId];
+        renderWaitingPlayerList();
+    });
+
+    /** 房間解散（房主斷線） */
+    connection.on('RoomDisbanded', function () {
+        alert('房主已離開，房間解散');
+        window.location.href = '/Lobby';
+    });
+
+    /** Hub 錯誤訊息 */
+    connection.on('Error', function (msg) {
+        errorMessage.textContent = msg;
+        window.showSection('section-error');
+    });
+
+    // ── 按鈕事件 ──────────────────────────────────────────────────────────────
+
+    /** 房主：開始遊戲 */
+    startGameBtn.addEventListener('click', function () {
+        startGameBtn.disabled = true;
+        connection.invoke('StartGame').catch(function (err) {
+            startGameBtn.disabled = false;
+            console.error('[room] StartGame 失敗：', err);
+        });
+    });
+
+    /** 離開房間 */
+    leaveRoomBtn.addEventListener('click', function () {
+        leaveRoomBtn.disabled = true;
+        connection.invoke('LeaveRoom')
+            .finally(function () {
+                window.location.href = '/Lobby';
+            });
+    });
+
+    // ── 渲染等待室玩家列表 ────────────────────────────────────────────────────
+    function renderWaitingPlayerList() {
+        const players = Object.values(window.roomState.currentPlayers);
+        playerCountBadge.textContent = players.length;
+        waitingPlayerList.innerHTML = '';
+
+        players.forEach(function (p) {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.dataset.playerId = p.playerId;
+            const isMe = p.playerId === myPlayerId;
+            li.innerHTML = `
+                <span>
+                    ${esc(p.name)}
+                    ${isMe ? '<span class="badge bg-primary ms-1">我</span>' : ''}
+                </span>
+                <span class="text-muted small font-monospace">${msToDisplay(maxTimeMs)}</span>`;
+            waitingPlayerList.appendChild(li);
+        });
+
+        // 至少要 1 人才能讓房主開始（防呆）
+        if (startGameBtn) {
+            startGameBtn.disabled = players.length < 1;
+        }
     }
-});
+
+    // ── 連線並建立或加入房間 ──────────────────────────────────────────────────
+    connection.start()
+        .then(function () {
+            if (!roomId) {
+                // 建立模式：從 sessionStorage 讀取待建立的設定
+                const pendingStr = sessionStorage.getItem('pendingCreate');
+                if (!pendingStr) {
+                    // sessionStorage 沒有設定 → 直接回大廳
+                    window.location.href = '/Lobby';
+                    return;
+                }
+                sessionStorage.removeItem('pendingCreate');
+                const p = JSON.parse(pendingStr);
+                return connection.invoke('CreateRoom', p.name, p.maxTime, p.rounds);
+            }
+            return connection.invoke('JoinRoom', roomId);
+        })
+        .catch(function (err) {
+            console.error('[room] SignalR 連線失敗：', err);
+            errorMessage.textContent = '無法連線至伺服器，請重新整理頁面';
+            window.showSection('section-error');
+        });
+
+    // ── 工具函數 ──────────────────────────────────────────────────────────────
+    /** ms → MM:SS */
+    function msToDisplay(ms) {
+        const totalSec = Math.max(0, Math.floor(ms / 1000));
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return `${pad2(m)}:${pad2(s)}`;
+    }
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function esc(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+}());

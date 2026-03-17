@@ -1,10 +1,22 @@
+# Git
+.git
+.gitignore
+
+# 開發文件
+DEVELOPMENT.md
+README.md
+LICENSE
+
+# .NET 建置輸出（Build stage 自己會 restore，不需要帶進去）
 **/bin/
 **/obj/
-**/.vs/
-**/.idea/
-**/node_modules/
-**/.git/
-*.md
-LICENSE
-docker-compose.yml
-.dockerignore
+
+# 本機設定（Production 用 ENV 覆蓋）
+**/appsettings.Development.json
+**/Properties/launchSettings.json
+
+# IDE / 系統
+.vs/
+.vscode/
+**/.DS_Store
+**/Thumbs.db
