@@ -1,0 +1,76 @@
+/* ── 全域 ──────────────────────────────────────────────────────────────── */
+
+:root {
+    --brand-primary: #0d6efd;
+    --brand-success: #198754;
+    --brand-danger:  #dc3545;
+    --text-muted-rgb: 108, 117, 125;
+}
+
+body {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+}
+
+/* ── Navbar ──────────────────────────────────────────────────────────────── */
+
+.navbar-brand {
+    font-size: 1.3rem;
+    letter-spacing: 0.03em;
+}
+
+/* ── Index（名稱輸入頁） ────────────────────────────────────────────────── */
+
+.index-card {
+    border: none;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, .12);
+}
+
+/* ── 大廳 ────────────────────────────────────────────────────────────────── */
+
+#shortcodeInput {
+    font-size: 1.1rem;
+    text-transform: uppercase;
+}
+
+/* 房間卡片 */
+#roomList .card {
+    border-radius: .75rem;
+    transition: box-shadow .15s ease, transform .1s ease;
+}
+
+#roomList .card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .15);
+    transform: translateY(-2px);
+}
+
+#roomList .card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── 等待室 ──────────────────────────────────────────────────────────────── */
+
+#waiting-player-list .list-group-item {
+    padding: .6rem 1rem;
+}
+
+/* 我自己的列表項目高亮 */
+#waiting-player-list .list-group-item.is-me {
+    background-color: rgba(13, 110, 253, .07);
+}
+
+/* ── 通用工具 ─────────────────────────────────────────────────────────────── */
+
+.font-monospace {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* 頁面 section 間距 */
+.section-spacer {
+    margin-top: 2rem;
+}

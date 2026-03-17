@@ -1,0 +1,115 @@
+@page
+@model LobbyModel
+@{
+    ViewData["Title"] = "遊戲大廳";
+}
+
+@if (TempData["Error"] is string error)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @error
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="關閉"></button>
+    </div>
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">遊戲大廳</h2>
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createRoomModal">
+        ＋ 建立房間
+    </button>
+</div>
+
+<!-- 快速加入（6 碼短碼） -->
+<div class="row mb-4">
+    <div class="col-md-5">
+        <div class="input-group">
+            <input id="shortcodeInput" type="text" class="form-control text-uppercase font-monospace"
+                   placeholder="輸入 6 碼房間代碼" maxlength="6" autocomplete="off"
+                   style="letter-spacing: 0.2em;" />
+            <button id="shortcodeJoinBtn" class="btn btn-outline-primary">加入</button>
+        </div>
+        <div id="shortcodeError" class="text-danger small mt-1 d-none"></div>
+    </div>
+</div>
+
+<!-- 無房間提示 -->
+<p id="noRoomsMsg" class="text-muted @(Model.Rooms.Any() ? "d-none" : "")">
+    目前沒有開放的房間，建立一個吧！
+</p>
+
+<!-- 房間列表 -->
+<div id="roomList" class="row g-3">
+    @foreach (var room in Model.Rooms)
+    {
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title mb-1">@room.RoomName</h5>
+                    <p class="card-text text-muted small mb-2">
+                        @room.PlayerCount 人 ／ 初始 @room.MaxTimeMinutes 分 ／ @room.TotalRounds 回合
+                    </p>
+                    <span class="badge @(room.State == RoomState.Waiting ? "bg-success" : "bg-secondary")">
+                        @(room.State == RoomState.Waiting ? "等待中" : "遊戲中")
+                    </span>
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <button class="btn btn-sm btn-primary join-room-btn"
+                            data-room-id="@room.RoomId"
+                            @(room.State != RoomState.Waiting ? "disabled" : "")>
+                        加入
+                    </button>
+                    <span class="text-muted small font-monospace">@room.RoomId</span>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- 建立房間 Modal -->
+<div class="modal fade" id="createRoomModal" tabindex="-1"
+     aria-labelledby="createRoomModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createRoomModalLabel">建立新房間</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="newRoomName" class="form-label">房間名稱</label>
+                    <input id="newRoomName" type="text" class="form-control"
+                           placeholder="輸入房間名稱（最多 30 字）" maxlength="30" />
+                </div>
+                <div class="mb-3">
+                    <label for="newMaxTime" class="form-label">每人初始時間</label>
+                    <select id="newMaxTime" class="form-select">
+                        <option value="1">1 分鐘</option>
+                        <option value="5" selected>5 分鐘</option>
+                        <option value="10">10 分鐘</option>
+                        <option value="15">15 分鐘</option>
+                        <option value="20">20 分鐘</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="newTotalRounds" class="form-label">回合數</label>
+                    <select id="newTotalRounds" class="form-select">
+                        <option value="5">5 回合</option>
+                        <option value="10" selected>10 回合</option>
+                        <option value="15">15 回合</option>
+                        <option value="20">20 回合</option>
+                        <option value="25">25 回合</option>
+                    </select>
+                </div>
+                <div id="createRoomError" class="text-danger small d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button id="confirmCreateRoom" type="button" class="btn btn-primary">建立</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/lobby.js" asp-append-version="true"></script>
+}

@@ -1,0 +1,29 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "歡迎";
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-sm-8 col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="card-title text-center mb-1">🕐 時間拍賣</h2>
+                <p class="text-center text-muted small mb-4">一場關於時間的心理博弈</p>
+
+                <form method="post">
+                    <div class="mb-3">
+                        <label asp-for="PlayerName" class="form-label fw-semibold">玩家名稱</label>
+                        <input asp-for="PlayerName" class="form-control form-control-lg"
+                               placeholder="輸入名稱（最多 20 字）"
+                               maxlength="20" autofocus autocomplete="off" required />
+                        <span asp-validation-for="PlayerName" class="text-danger small"></span>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">進入大廳</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

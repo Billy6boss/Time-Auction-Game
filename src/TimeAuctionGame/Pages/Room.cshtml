@@ -1,0 +1,162 @@
+@page "{roomId?}"
+@model RoomModel
+@{
+    ViewData["Title"] = Model.RoomName.Length > 0 ? Model.RoomName : "房間";
+}
+
+<div id="room-app"
+     data-room-id="@Model.RoomId"
+     data-player-id="@Model.PlayerId"
+     data-player-name="@Model.PlayerName"
+     data-total-rounds="@Model.TotalRounds"
+     data-max-time-ms="@((long)Model.MaxTimeMinutes * 60 * 1000)">
+
+    <!-- ── 連線中 ── -->
+    <div id="section-loading" class="text-center mt-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">連線中...</span>
+        </div>
+        <p class="mt-2 text-muted">連線中...</p>
+    </div>
+
+    <!-- ── 錯誤 ── -->
+    <div id="section-error" class="d-none">
+        <div class="alert alert-danger" id="error-message"></div>
+        <a href="/Lobby" class="btn btn-secondary">回到大廳</a>
+    </div>
+
+    <!-- ── 等待開始 ── -->
+    <div id="section-waiting" class="d-none">
+        <div class="row">
+            <div class="col-md-8">
+                <!-- 房間資訊 -->
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0" id="room-title">@Model.RoomName</h5>
+                        <span id="room-id-badge" class="badge bg-secondary font-monospace fs-6">@Model.RoomId</span>
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="row text-muted small">
+                            <div class="col">⏱ 初始時間：<strong id="room-max-time">@Model.MaxTimeMinutes</strong> 分鐘</div>
+                            <div class="col">🔄 回合數：<strong id="room-total-rounds">@Model.TotalRounds</strong> 回合</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 玩家列表 -->
+                <div class="card">
+                    <div class="card-header">
+                        玩家列表
+                        <span id="player-count-badge" class="badge bg-primary ms-1">0</span>
+                    </div>
+                    <ul id="waiting-player-list" class="list-group list-group-flush">
+                        <!-- JS 填充（RoomJoined / PlayerJoined / PlayerLeft） -->
+                    </ul>
+                </div>
+            </div>
+
+            <div class="col-md-4 mt-3 mt-md-0">
+                <div class="d-grid gap-2">
+                    <!-- 房主才顯示 -->
+                    <button id="start-game-btn" class="btn btn-success btn-lg d-none">
+                        🎮 開始遊戲
+                    </button>
+                    <button id="leave-room-btn" class="btn btn-outline-danger">
+                        🚪 離開房間
+                    </button>
+                </div>
+                <p id="guest-hint" class="text-muted small mt-2 d-none">
+                    等待房主開始遊戲...
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 遊戲中（Countdown + InProgress）── -->
+    <div id="section-game" class="d-none">
+        <div class="text-center mb-2">
+            <h5 id="round-label">第 1 回合</h5>
+            <p id="game-status" class="text-muted mb-0 small"></p>
+        </div>
+
+        <!-- 七段顯示器計時（倒數期間直接顯示倒數） -->
+        <div class="text-center mb-3">
+            <span id="timer-display" class="DSEG7Classic game-timer">00:00.0</span>
+        </div>
+
+        <!-- 大按鈕 -->
+        <div class="text-center my-4">
+            <button id="big-btn" class="big-action-btn" disabled>
+                <span id="big-btn-label">按住</span>
+            </button>
+        </div>
+
+        <!-- 各玩家剩餘時間條 -->
+        <div id="player-time-list" class="row g-2 justify-content-center mt-2">
+            <!-- JS 填充 -->
+        </div>
+    </div>
+
+    <!-- ── 回合結束 ── -->
+    <div id="section-round-end" class="d-none">
+        <div class="text-center mb-4">
+            <h4>回合結束</h4>
+            <p id="round-result-msg" class="lead text-primary"></p>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <h6 class="text-muted mb-2">本場分數</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>玩家</th>
+                            <th class="text-center">得分</th>
+                            <th class="text-end">剩餘時間</th>
+                        </tr>
+                    </thead>
+                    <tbody id="round-scores-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <!-- 房主才顯示 -->
+            <button id="next-round-btn" class="btn btn-primary btn-lg d-none">▶ 下一回合</button>
+            <p id="waiting-next-msg" class="text-muted d-none">等待房主開始下一回合...</p>
+        </div>
+    </div>
+
+    <!-- ── 遊戲結束 ── -->
+    <div id="section-game-end" class="d-none">
+        <div class="text-center mb-4">
+            <h3>🏆 遊戲結束！</h3>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <table class="table table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>#</th>
+                            <th>玩家</th>
+                            <th class="text-center">得分</th>
+                            <th class="text-end">剩餘時間</th>
+                        </tr>
+                    </thead>
+                    <tbody id="final-scores-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="/Lobby" class="btn btn-secondary btn-lg">回到大廳</a>
+        </div>
+    </div>
+
+</div>
+
+@section Scripts {
+    <script src="~/js/room.js" asp-append-version="true"></script>
+    <script src="~/js/game.js" asp-append-version="true"></script>
+}
