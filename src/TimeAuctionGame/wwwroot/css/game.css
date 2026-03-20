@@ -100,6 +100,11 @@
     padding-top: 1rem;
 }
 
+/* 預留固定高度，避免文字出現時推動下方按鈕 */
+#game-status {
+    min-height: 1.5em;
+}
+
 /* 倒數 overlay */
 #countdown-overlay {
     animation: fadeIn .2s ease;

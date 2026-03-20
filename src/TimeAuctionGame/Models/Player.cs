@@ -21,14 +21,30 @@ public class Player
     public bool IsPressingButton { get; set; }
 
     /// <summary>
-    /// 本回合是否已放棄（倒數期間 >= 2s 放開按鈕）。
-    /// true 就算按住按鈕也不參與本回合；下一回合開始時重置為 false。
+    /// [per-round] 本回合是否已放棄（倒數期間 >= 2s 放開按鈕）。
+    /// true 就算按住按鈕也不參與本回合；由 <see cref="ResetForRound"/> 重置。
     /// </summary>
     public bool IsSittingOutRound { get; set; }
 
     /// <summary>
-    /// 玩家是否仍有時間可以參與競標（RemainingTimeMs > 0）。
-    /// false 表示時間已歸零，按鈕可按但無效，僅留在房間觀戰。
+    /// [per-round] 本回合實際出價時間（毫秒）。
+    /// = min(放開時經過時間, 放開前剩餘時間)，用於回合結束時決定勝者。
+    /// 由 <see cref="ResetForRound"/> 重置。
     /// </summary>
+    public long EffectiveBid { get; set; }
+
+    /// <summary>玩家是否仍有時間可以參與競標（RemainingTimeMs > 0）。</summary>
     public bool IsActive => RemainingTimeMs > 0;
+
+    /// <summary>
+    /// 重置所有 [per-round] 狀態欄位。
+    /// 應於每回合開始（<see cref="TimeAuctionGame.Services.GameService.StartRound"/>）時呼叫。
+    /// 新增每回合狀態欄位時，請在此一併加入重置邏輯。
+    /// </summary>
+    public void ResetForRound()
+    {
+        IsPressingButton  = false;
+        IsSittingOutRound = false;
+        EffectiveBid      = 0;
+    }
 }
