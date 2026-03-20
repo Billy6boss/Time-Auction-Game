@@ -31,14 +31,9 @@ public class GameService
         room.CurrentRound++;
         room.State = RoomState.Waiting;
 
-        // 重置所有玩家按鈕狀態
+        // 重置所有玩家的每回合狀態（見 Player.ResetForRound()）
         foreach (var player in room.Players.Values)
-        {
-            player.IsPressingButton = false;
-            player.IsSittingOutRound = false;
-        }
-
-        room.LastReleasedActivePlayer = null;
+            player.ResetForRound();
 
         _logger.LogInformation("[Room {RoomId}] 回合 {Round}/{Total} 準備開始",
             room.RoomId, room.CurrentRound, room.TotalRounds);
@@ -175,13 +170,13 @@ public class GameService
         {
             var elapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - room.RoundStartTime;
             var before = player.RemainingTimeMs;
+            // 實際出價 = min(經過時間, 放開前剩餘時間)，避免時間超過預算的局面
+            player.EffectiveBid = Math.Min(elapsed, player.RemainingTimeMs);
             player.RemainingTimeMs = Math.Max(0, player.RemainingTimeMs - elapsed);
 
             _logger.LogInformation(
-                "[Room {RoomId}] 玩家 {PlayerName}({PlayerId}) 放開按鈕，耗時 {Elapsed}ms，剩餘 {Before}ms → {After}ms",
-                room.RoomId, player.Name, playerId, elapsed, before, player.RemainingTimeMs);
-
-            room.LastReleasedActivePlayer = player;
+                "[Room {RoomId}] 玩家 {PlayerName}({PlayerId}) 放開按鈕，經過 {Elapsed}ms，實際出價 {Bid}ms，剩餘 {Before}ms → {After}ms",
+                room.RoomId, player.Name, playerId, elapsed, player.EffectiveBid, before, player.RemainingTimeMs);
 
             await _hubContext.Clients.Group(room.RoomId)
                 .SendAsync("PlayerTimeUpdated", new
@@ -265,10 +260,24 @@ public class GameService
         // 還有玩家按住 → 繼續
         if (stillPressing.Count >= 1) return;
 
-        // 0 人按住 → 最後放開按鈕的有效玩家為勝者（時間已在放開時扣除）
-        var roundWinners = room.LastReleasedActivePlayer != null
-            ? new List<Player> { room.LastReleasedActivePlayer }
-            : new List<Player>();
+        // 0 人按住 → 以 EffectiveBid 最高者為勝者（可並列）
+        var releasedPlayers = room.Players.Values
+            .Where(p => !p.IsPressingButton && p.EffectiveBid > 0 && !p.IsSittingOutRound)
+            .ToList();
+
+        List<Player> roundWinners;
+        if (releasedPlayers.Count == 0)
+        {
+            roundWinners = new List<Player>();
+        }
+        else
+        {
+            var maxBid = releasedPlayers.Max(p => p.EffectiveBid);
+            roundWinners = releasedPlayers.Where(p => p.EffectiveBid == maxBid).ToList();
+            _logger.LogInformation(
+                "[Room {RoomId}] 最高出價 {MaxBid}ms，勝者：{Winners}",
+                room.RoomId, maxBid, string.Join(", ", roundWinners.Select(w => w.Name)));
+        }
 
         await EndRound(room, roundWinners, skipWinnerTimeDeduction: true);
     }
