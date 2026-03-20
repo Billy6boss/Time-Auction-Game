@@ -19,11 +19,20 @@
     const finalScoresBody  = document.getElementById('final-scores-body');
 
     // ── 執行時狀態 ────────────────────────────────────────────────────────────
-    let timerInterval          = null;   // 回合計時器
-    let countdownInterval      = null;   // 5 秒視覺倒數
-    let roundStartTime         = 0;      // Unix ms，來自 RoundStarted 事件
-    let inCountdown            = false;  // 目前是否在 5s 倒數中
-    let releasedDuringCountdown = false; // 倒數期間放開過按鈕（不知是否 >= 2s）
+    // ── 前端遊戲狀態（State Machine） ────────────────────────────────────────
+    const GameState = Object.freeze({
+        WAITING:            'WAITING',            // 等待所有人按住（倒數尚未啟動）
+        COUNTDOWN:          'COUNTDOWN',          // 5s 倒數進行中，本玩家仍按住
+        COUNTDOWN_RELEASED: 'COUNTDOWN_RELEASED', // 倒數中已放開，等伺服器判定 (<2s 取消 / ≥2s 放棄)
+        SITTING_OUT:        'SITTING_OUT',        // 本回合放棄（≥2s 放開）
+        IN_PROGRESS:        'IN_PROGRESS',        // 回合進行中，本玩家按住
+        RELEASED:           'RELEASED',           // 回合進行中已放開
+    });
+
+    let timerInterval     = null;              // 回合計時器
+    let countdownInterval = null;              // 5 秒視覺倒數
+    let roundStartTime    = 0;                 // Unix ms，來自 RoundStarted 事件
+    let gameState         = GameState.WAITING;
 
     // ── SignalR 事件 ──────────────────────────────────────────────────────────
 
@@ -34,8 +43,7 @@
     connection.on('RoundPrepare', function (data) {
         stopTimer();
         stopCountdownAnimation();
-        inCountdown = false;
-        releasedDuringCountdown = false;
+        gameState = GameState.WAITING;
 
         roundLabel.textContent = `第 ${data.round} 回合 ／ 共 ${data.totalRounds} 回合`;
         timerDisplay.textContent = '00:00.0';
@@ -53,7 +61,7 @@
      * 倒數開始：顯示 3→2→1 視覺倒數。
      */
     connection.on('CountdownStarted', function () {
-        inCountdown = true;
+        gameState = GameState.COUNTDOWN;
         gameStatus.textContent = '所有玩家就緒，即將開始...';
         // 不 disable 按鈕：玩家需繼續按住，可隨時放開以觸發放棄（≥2s）或取消（<2s）邏輯
 
@@ -76,8 +84,7 @@
      */
     connection.on('CountdownCancelled', function () {
         stopCountdownAnimation();
-        inCountdown = false;
-        releasedDuringCountdown = false;   // < 2s 放開，重置可再次嘗試
+        gameState = GameState.WAITING;
         gameStatus.textContent = '';
         timerDisplay.textContent = '00:00.0';
         bigBtn.disabled = false;
@@ -89,6 +96,7 @@
      * 倒數仍繼續，其他玩家照常進行。
      */
     connection.on('SittingOutRound', function () {
+        gameState = GameState.SITTING_OUT;
         bigBtn.disabled = true;
         bigBtnLabel.textContent = '本回合放棄';
     });
@@ -100,19 +108,19 @@
     connection.on('RoundStarted', function (data) {
         roundStartTime = data.roundStartTime;
         stopCountdownAnimation();
-        inCountdown = false;
         gameStatus.textContent = '';
 
-        if (!releasedDuringCountdown) {
-            // 持續按住中 — 保留 pressed 狀態，更新標籤
+        if (gameState === GameState.COUNTDOWN) {
+            // 持續按住中 — 轉入回合進行狀態
+            gameState = GameState.IN_PROGRESS;
             bigBtn.disabled = false;
             bigBtnLabel.textContent = '持續按住...';
         } else {
-            // 倒數中已放開（放棄本回合）：確保顯示放棄狀態
+            // COUNTDOWN_RELEASED 或 SITTING_OUT：本回合放棄
+            gameState = GameState.SITTING_OUT;
             bigBtn.disabled = true;
             bigBtnLabel.textContent = '本回合放棄';
         }
-        releasedDuringCountdown = false;
 
         stopTimer();
         timerInterval = setInterval(function () {
@@ -144,7 +152,7 @@
             roundResultMsg.textContent = '本回合平手，無人得分';
         }
 
-        renderScoreTable(roundScoresBody, data.scores, false);
+        renderScoreTable(roundScoresBody, data.scores, false, false);
 
         if (roomState.isHost) {
             nextRoundBtn.classList.remove('d-none');
@@ -164,7 +172,7 @@
      */
     connection.on('GameEnded', function (data) {
         stopTimer();
-        renderScoreTable(finalScoresBody, data.finalScores, true);
+        renderScoreTable(finalScoresBody, data.finalScores, true, true);
         window.showSection('section-game-end');
     });
 
@@ -195,14 +203,20 @@
             console.error('[game] ReleaseButton 失敗：', err);
         });
 
-        if (inCountdown) {
+        if (gameState === GameState.COUNTDOWN) {
             // 倒數期間放開：暫時禁用，等待伺服器判定
-            // < 2s → 收到 CountdownCancelled → 重新啟用，可再次按
-            // ≥ 2s → 收到 SittingOutRound  → 維持停用，本回合放棄
-            releasedDuringCountdown = true;
+            // < 2s → CountdownCancelled → WAITING，可再次按
+            // ≥ 2s → SittingOutRound   → SITTING_OUT
+            gameState = GameState.COUNTDOWN_RELEASED;
             bigBtn.disabled = true;
             bigBtnLabel.textContent = '放開中...';
+        } else if (gameState === GameState.IN_PROGRESS) {
+            // 回合進行中放開：禁用按鈕，本回合不可再按
+            gameState = GameState.RELEASED;
+            bigBtn.disabled = true;
+            bigBtnLabel.textContent = '已放開';
         } else {
+            // WAITING：倒數尚未啟動前放開，可再次按
             bigBtnLabel.textContent = '按住';
         }
     }
@@ -256,8 +270,9 @@
      * @param {HTMLElement} tbody
      * @param {Array} scores  ScoreEntry[]
      * @param {boolean} showRank  是否顯示名次欄（遊戲結束用）
+     * @param {boolean} showAllTime 是否顯示所有人的剩餘時間（false 時其他人顯示 --:--）
      */
-    function renderScoreTable(tbody, scores, showRank) {
+    function renderScoreTable(tbody, scores, showRank, showAllTime) {
         tbody.innerHTML = '';
         scores.forEach(function (s, i) {
             const isMe = s.playerId === roomState.myPlayerId;
@@ -266,12 +281,13 @@
 
             const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
             const rankCell = showRank ? `<td>${medal}</td>` : '';
+            const timeDisplay = (showAllTime || isMe) ? msToShortDisplay(s.remainingTimeMs) : '--:--';
 
             tr.innerHTML = `
                 ${rankCell}
                 <td>${esc(s.name)}${isMe ? ' <span class="badge bg-primary ms-1">我</span>' : ''}</td>
                 <td class="text-center fw-bold">${s.score}</td>
-                <td class="text-end font-monospace">${msToShortDisplay(s.remainingTimeMs)}</td>`;
+                <td class="text-end font-monospace">${timeDisplay}</td>`;
             tbody.appendChild(tr);
         });
     }
