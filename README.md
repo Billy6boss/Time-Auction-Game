@@ -1,4 +1,7 @@
 # Time-Auction-Game
+
+![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet) ![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
+
 時間拍賣(Time Auction Game) 是一個多人心裡遊戲，用你有的時間去與大會的時間與其他人競標，問題是你不會知道對方開價多少
 
 ## 遊戲規則
@@ -28,6 +31,32 @@
 - 回合結束後回到等待室，房主決定下一回合開始時間
 - 所有回合結束後顯示最終得分，房主可再次開始新遊戲
 
+## 本地執行
+
+### 前置需求
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) **或** [Docker](https://www.docker.com/)
+
+### 方法 A：dotnet run
+
+```bash
+cd src/TimeAuctionGame
+dotnet run
+```
+
+啟動後瀏覽 `https://localhost:5001`
+
+### 方法 B：Docker
+
+```bash
+docker build -t time-auction-game .
+docker run -p 8080:8080 time-auction-game
+```
+
+啟動後瀏覽 `http://localhost:8080`
+
+---
+
 ## 技術說明
 
 | 項目 | 決策 |
@@ -45,11 +74,29 @@
 
 ## 畫面
 1. 當使用者進入網站後，如過沒有相關的登入資訊，則會顯示一個輸入框讓使用者輸入自己的名字
+
+   > ![Login Page](image.png)
+
 2. 當登入者進到網頁會進入一個大廳，畫面會有一個按鈕讓使用者創建房間，並且會有一個列表顯示目前所有的房間，使用者可以選擇加入房間（透過列表按鈕或輸入 6 碼短碼）
+
+   > ![Loby](image-1.png)
+
 3. 當使用者加入房間後，會顯示房間的資訊，包含房間名稱、每個玩家一開始擁有的時間、回合數、目前有哪些玩家加入了房間
+
+   > ![Game Room](image-2.png)
+
 4. 當房主按下開始遊戲的按鈕後，所有玩家的畫面會顯示一個巨大按鈕，並且有一個時間顯示器，是經典的七段顯示器，負責顯示遊戲開始的倒數、以及遊戲開始後的時間計數
+
+   > ![alt text](image-3.png)
+
 5. 該回合結束之後會回到第3點的畫面，並且顯示目前的分數，房主可以決定何時開始下一回合，直到回合結束，最後顯示獲勝者
+
+   > ![alt text](image-4.png)
 
 ## 開發計畫
 
 詳見 [DEVELOPMENT.md](DEVELOPMENT.md)
+
+## 授權條款
+
+本專案以 [MIT License](LICENSE) 授權。
